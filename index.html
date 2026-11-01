@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f6f5f0">
+    <meta name="description" content="A focused, offline-ready KCSE revision space for quizzes, study plans, and progress.">
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" href="icon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="styles.css">
+    <title>Fieldnotes | KCSE Study</title>
+  </head>
+  <body>
+    <div id="app" class="app-shell" aria-live="polite">
+      <header class="topbar">
+        <a class="brand" href="#overview" aria-label="Fieldnotes home">
+          <span class="brand-mark" aria-hidden="true">f.</span>
+          <span>fieldnotes<span class="brand-dot">.</span></span>
+        </a>
+        <nav class="main-nav" aria-label="Main navigation">
+          <button class="nav-link is-active" data-view="overview">Overview</button>
+          <button class="nav-link" data-view="quiz">Quizzes</button>
+          <button class="nav-link" data-view="plan">Study plan</button>
+          <button class="nav-link" data-view="library">Library</button>
+        </nav>
+        <div class="topbar-tools">
+          <span class="connection-status"><span class="status-dot"></span><span id="connection-label">Saved on this device</span></span>
+          <button class="avatar-button" id="settings-button" aria-label="Open settings">A</button>
+        </div>
+      </header>
+      <main id="view" class="page-content"></main>
+      <footer class="app-footer"><span>KCSE revision, at your pace.</span><span>Made for steady progress.</span></footer>
+      <div id="toast" class="toast" role="status" aria-live="polite"></div>
+      <div id="overlay-root"></div>
+    </div>
+    <script src="app.js" defer></script>
+  </body>
+</html>
