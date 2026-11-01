@@ -1,0 +1,18 @@
+{
+  "name": "Fieldnotes KCSE Study",
+  "short_name": "Fieldnotes",
+  "description": "Offline-ready KCSE revision, quizzes, and study plans.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f6f5f0",
+  "theme_color": "#f6f5f0",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,5 +1,11 @@
-const CACHE_NAME = 'fieldnotes-shell-v3';
-const APP_SHELL = ['./', './index.html', './styles.css', './app.js', './manifest.json', './icon.svg'];
+const CACHE_NAME = 'fieldnotes-shell-v6';
+const APP_SHELL = [
+  './', './index.html', './styles.css', './app.js', './manifest.json', './icon.svg',
+  './vendor/pdf.min.js', './vendor/pdf.worker.min.js', './vendor/tesseract.min.js', './vendor/tesseract.worker.min.js',
+  './vendor/tesseract-core/tesseract-core.wasm.js', './vendor/tesseract-core/tesseract-core-simd.wasm.js',
+  './vendor/tesseract-core/tesseract-core-lstm.wasm.js', './vendor/tesseract-core/tesseract-core-simd-lstm.wasm.js',
+  './vendor/tessdata/eng.traineddata.gz'
+];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));

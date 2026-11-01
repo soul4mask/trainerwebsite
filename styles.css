@@ -21,7 +21,7 @@
 body { margin: 0; min-width: 320px; background: var(--paper); color: var(--ink); }
 button, input, select { font: inherit; }
 button { color: inherit; }
-button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid rgba(36, 92, 69, .25); outline-offset: 2px; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid rgba(36, 92, 69, .25); outline-offset: 2px; }
 .app-shell { min-height: 100vh; display: flex; flex-direction: column; }
 .topbar { height: 74px; padding: 0 clamp(20px, 5vw, 76px); display: flex; align-items: center; gap: 48px; border-bottom: 1px solid var(--line); background: rgba(255, 254, 250, .88); }
 .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--ink); font-size: 17px; font-weight: 700; letter-spacing: 0; white-space: nowrap; }
@@ -102,6 +102,7 @@ h3 { margin-bottom: 7px; font-size: 14px; letter-spacing: 0; }
 .field { display: grid; gap: 7px; margin-bottom: 17px; }
 .field label { color: #525c54; font-size: 11px; font-weight: 700; }
 .field input, .field select { width: 100%; height: 42px; padding: 0 12px; border: 1px solid #dcded5; border-radius: 3px; background: #fffefa; color: var(--ink); font-size: 12px; }
+.field textarea { width: 100%; min-height: 76px; padding: 10px 12px; border: 1px solid #dcded5; border-radius: 3px; background: #fffefa; color: var(--ink); font: inherit; font-size: 12px; line-height: 1.5; resize: vertical; }
 .field-help { color: var(--muted); font-size: 10px; line-height: 1.5; }
 .quiz-side { background: #e8eee5; border: 0; }
 .quiz-side h2 { font-size: 20px; }
@@ -132,6 +133,35 @@ h3 { margin-bottom: 7px; font-size: 14px; letter-spacing: 0; }
 .plan-summary strong { font: 500 22px 'Newsreader', Georgia, serif; }
 .library-tools { display: flex; align-items: center; gap: 10px; }
 .library-tools input { width: 210px; height: 38px; padding: 0 11px; border: 1px solid var(--line); border-radius: 3px; background: white; font-size: 11px; }
+.revision-filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-bottom: 22px; }
+.revision-filters .field { margin: 0; }
+.revision-filters select { width: 100%; height: 40px; padding: 0 10px; border: 1px solid var(--line); border-radius: 3px; background: var(--white); color: var(--ink); font-size: 12px; }
+.paper-viewer-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 13px; }
+.paper-viewer-heading h2 { margin: 0 0 4px; font-size: 21px; }
+.paper-viewer-actions { display: flex; gap: 9px; }
+.past-paper-frame { display: block; width: 100%; height: min(78vh, 960px); min-height: 540px; border: 1px solid var(--line); background: #e9e9e5; }
+.paper-quiz-launch { margin: 22px 0; padding: 20px 22px; display: flex; align-items: center; justify-content: space-between; gap: 18px; border: 1px solid var(--line); border-left: 3px solid var(--coral); background: var(--white); }
+.paper-quiz-launch .eyebrow { margin-bottom: 7px; }
+.paper-quiz-launch h2 { margin: 0 0 4px; font-size: 21px; }
+.paper-quiz-launch .subheading { font-size: 11px; }
+.paper-authoring { margin-top: 20px; }
+.paper-authoring .section-title { align-items: start; }
+.paper-authoring .section-title h2 { margin-bottom: 4px; }
+.paper-authoring .section-title .field-help { max-width: 500px; }
+.paper-question-count { flex: 0 0 auto; color: var(--green); font: 500 11px 'DM Mono', monospace; }
+.paper-question-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 14px; }
+.paper-authoring-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 14px; }
+.paper-authoring-choices[hidden], .paper-question-fields[hidden] { display: none; }
+.paper-question-list { margin-top: 24px; border-top: 1px solid var(--line); }
+.paper-question-list h3 { margin: 16px 0 5px; }
+.paper-question-row { min-height: 52px; padding: 10px 0; display: flex; align-items: center; justify-content: space-between; gap: 14px; border-bottom: 1px solid var(--line); }
+.paper-question-row strong { display: block; font-size: 11px; line-height: 1.5; }
+.paper-question-row span { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; }
+.paper-quiz-session { max-width: 760px; margin: 22px auto; }
+.paper-quiz-session .question-text { margin: 0 0 20px; font: 500 25px/1.35 'Newsreader', Georgia, serif; }
+.paper-quiz-session .quiz-actions { gap: 12px; flex-wrap: wrap; }
+.paper-quiz-score { margin: 14px 0 8px; color: var(--green); font: 500 42px/1 'Newsreader', Georgia, serif; }
+.paper-quiz-score span { color: var(--muted); font: 400 14px 'DM Sans', sans-serif; }
 .paper-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
 .paper-item { min-height: 157px; padding: 18px; display: flex; flex-direction: column; justify-content: space-between; border: 1px solid var(--line); border-radius: 4px; background: var(--white); }
 .paper-top { display: flex; justify-content: space-between; align-items: start; }
@@ -189,6 +219,17 @@ h3 { margin-bottom: 7px; font-size: 14px; letter-spacing: 0; }
 	.library-tools { width: 100%; flex-wrap: wrap; }
 	.library-tools input { min-width: 0; flex: 1 1 100%; }
 	.library-tools .button { flex: 1 1 0; }
+	.revision-filters { grid-template-columns: 1fr; gap: 11px; }
+	.paper-viewer-heading { align-items: start; flex-direction: column; }
+	.paper-viewer-actions { width: 100%; }
+	.paper-viewer-actions .button { flex: 1; }
+	.past-paper-frame { height: 68vh; min-height: 460px; }
+	.paper-quiz-launch { align-items: stretch; flex-direction: column; }
+	.paper-authoring .section-title { gap: 10px; }
+	.paper-question-fields, .paper-authoring-choices { grid-template-columns: 1fr; }
+	.paper-question-row { align-items: start; }
+	.paper-quiz-session { padding: 19px; }
+	.paper-quiz-session .question-text { font-size: 22px; }
 	.plan-row { grid-template-columns: 24px minmax(90px, 1fr) 82px 75px 30px; gap: 7px; }
 	.plan-row select, .plan-row input { font-size: 10px; }
 	.plan-summary { align-items: start; flex-direction: column; gap: 12px; }

@@ -145,6 +145,21 @@ const PAPERS = [
 	{ year: 2021, subject: 'Biology', paper: 'Paper 1', questions: 20 }, { year: 2020, subject: 'Chemistry', paper: 'Paper 2', questions: 19 },
 	{ year: 2019, subject: 'Physics', paper: 'Paper 1', questions: 17 }, { year: 2018, subject: 'Mathematics', paper: 'Paper 2', questions: 21 }
 ];
+const PAST_PAPERS = [
+	...Array.from({ length: 14 }, (_, index) => 2013 - index).flatMap((year) => Array.from({ length: year >= 2010 && year !== 2012 ? 3 : 2 }, (_, index) => {
+		const number = index + 1;
+		const filename = year === 2010 && number === 3
+			? 'KCSE-2010-Chemistry-P3.pdf'
+			: year <= 2009
+			? `KCSE-${year}-CHEMISTRY-PAPER-${number}-E.pdf`
+			: year === 2013
+				? `KCSE-2013-Chemistry-P${number}.pdf`
+				: `KCSE-${year}-CHEMISTRY-P${number}.pdf`;
+		return { subject: 'Chemistry', year, paper: `Paper ${number}`, number, file: `chemistry/${filename}` };
+	})),
+	{ subject: 'Chemistry', year: 2012, paper: 'Question collection', number: null, file: 'chemistry/KCSE-2012-CHEMISTRY-QUESTIONS.pdf' },
+	{ subject: 'Chemistry', year: null, paper: 'Question collection', number: null, file: 'chemistry/KCSE-CHEMISTRY-QUESTIONS.pdf' }
+];
 const SETBOOKS = [
 	{ subject: 'English', title: 'Fathers of Nations', author: 'Paul B. Vitta', genre: 'Compulsory novel' },
 	{ subject: 'English', title: 'The Samaritan', author: 'John Lara', genre: 'Compulsory play' },
@@ -155,7 +170,7 @@ const SETBOOKS = [
 	{ subject: 'Kiswahili', title: 'Mapambazuko ya Machweo na Hadithi Nyingine', author: 'Short-story anthology', genre: 'Hadithi fupi' },
 	{ subject: 'Kiswahili', title: 'Nguu za Jadi', author: 'Prof. Cara Momanyi', genre: 'Riwaya' }
 ];
-const freshState = () => ({ name: '', plan: SUBJECTS.map((subject) => ({ subject: subject.name, active: true, sessions: 3, minutes: 30 })), attempts: [], studyDays: [], savedPapers: [], syncUrl: '', consent: false });
+const freshState = () => ({ name: '', plan: SUBJECTS.map((subject) => ({ subject: subject.name, active: true, sessions: 3, minutes: 30 })), attempts: [], studyDays: [], savedPapers: [], paperQuestions: [], syncUrl: '', consent: false });
 function withPlanDefaults(savedState) {
 	const merged = { ...freshState(), ...savedState };
 	const planned = new Set(merged.plan.map((item) => item.subject));
@@ -164,6 +179,9 @@ function withPlanDefaults(savedState) {
 }
 let state = freshState();
 let currentView = 'overview';
+let selectedPastPaperFile = PAST_PAPERS[0].file;
+let paperQuiz = null;
+let extractedPaperDrafts = { file: '', questions: [], message: '', loading: false };
 let vaultKey;
 let vaultSalt;
 let vaultPassphrase;
@@ -411,12 +429,210 @@ function renderLibrary() {
 	return `<div class="page-heading"><div><p class="eyebrow">Your revision shelf</p><h1>Paper library.</h1><p class="subheading">KCSE paper outlines and prescribed 2026 language setbooks.</p></div><div class="library-tools"><input id="paper-search" type="search" placeholder="Find a subject, title, or year" aria-label="Search papers and setbooks"><a class="button secondary small" href="https://www.freekcsepastpapers.com/kcse-past-papers/" target="_blank" rel="noopener noreferrer">Browse archive ↗</a><button class="button small" data-action="import-paper">Add answer sheet</button><input id="paper-file" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" hidden></div></div><section><div class="section-title"><h2>Paper outlines</h2><span class="field-help">Past paper files are not included</span></div><div class="paper-grid" id="paper-grid">${paperCards}</div></section><section style="margin-top:30px"><div class="section-title"><h2>English and Kiswahili setbooks</h2><span class="field-help">KCSE class of 2026 · 2022–2026 cycle</span></div><div class="paper-grid">${setbookCards}</div></section>${sheets.length ? `<section style="margin-top:30px"><div class="section-title"><h2>Your answer sheets</h2><span class="field-help">Encrypted and stored on this device</span></div><div class="paper-grid">${sheetCards}</div></section>` : ''}<div class="notice">Setbook titles and paper outlines are study references; the app does not include copyrighted full-text books or official exam papers.</div>`;
 }
 
+function renderExtractedDrafts(file) {
+	if (extractedPaperDrafts.file !== file) return '';
+	if (extractedPaperDrafts.loading) return '<p class="field-help extract-status">Reading the PDF and finding numbered questions…</p>';
+	if (extractedPaperDrafts.message) return `<p class="field-help extract-status">${escapeHTML(extractedPaperDrafts.message)}</p>`;
+	if (!extractedPaperDrafts.questions.length) return '<p class="field-help extract-status">No numbered questions found. Add one manually below or check the PDF’s layout.</p>';
+	return `<div class="extracted-drafts"><div class="section-title"><h3>${extractedPaperDrafts.questions.length} question drafts found</h3><span class="field-help">Review each draft and set its answer before saving</span></div>${extractedPaperDrafts.questions.map((question, index) => `<div class="extracted-draft"><div><span class="draft-meta">Question ${question.number} · PDF page ${question.page}${question.extraction === 'OCR' ? ' · OCR, verify text' : ''}${question.choices.length === 4 ? ' · four A–D options detected' : ''}</span><p>${escapeHTML(question.prompt.slice(0, 360))}${question.prompt.length > 360 ? '…' : ''}</p></div><button class="button secondary small" data-action="use-paper-draft" data-draft-index="${index}">Review draft</button></div>`).join('')}</div>`;
+}
+
+async function extractPaperQuestions(file) {
+	if (!window.pdfjsLib) { showToast('PDF reader is unavailable. Reload the app and try again.'); return; }
+	extractedPaperDrafts = { file, questions: [], message: '', loading: true };
+	renderApp();
+	let ocrWorker = null;
+	try {
+		pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdf.worker.min.js';
+		const pdf = await pdfjsLib.getDocument({ url: file, isEvalSupported: false }).promise;
+		const blocks = [];
+		let current = null;
+		let lastQuestionNumber = 0;
+		let ocrPageNumber = 0;
+		for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+			const page = await pdf.getPage(pageNumber);
+			const content = await page.getTextContent();
+			const items = content.items.filter((item) => item.str.trim()).map((item) => ({ text: item.str.trim(), x: item.transform[4], y: item.transform[5] })).sort((a, b) => b.y - a.y || a.x - b.x);
+			let lines = [];
+			const usedOcr = items.reduce((sum, item) => sum + item.text.length, 0) < 80;
+			if (!usedOcr) {
+				for (const item of items) {
+					const row = lines[lines.length - 1];
+					if (row && Math.abs(row.y - item.y) < 3) row.parts.push(item.text);
+					else lines.push({ y: item.y, parts: [item.text] });
+				}
+				lines = lines.map((row) => row.parts.join(' '));
+			} else {
+				if (!window.Tesseract) throw new Error('OCR reader unavailable');
+				ocrPageNumber = pageNumber;
+				if (!ocrWorker) ocrWorker = await Tesseract.createWorker('eng', 1, {
+					workerPath: new URL('vendor/tesseract.worker.min.js', document.baseURI).href,
+					corePath: new URL('vendor/tesseract-core/', document.baseURI).href,
+					langPath: new URL('vendor/tessdata', document.baseURI).href,
+					gzip: true,
+					workerBlobURL: false,
+					logger: (status) => {
+						const progress = $('.extract-status');
+						if (progress) progress.textContent = `Scanning page ${ocrPageNumber} of ${pdf.numPages} for question text… ${status.progress ? `${Math.round(status.progress * 100)}%` : ''}`;
+					}
+				});
+				const viewport = page.getViewport({ scale: 1.7 });
+				const canvas = document.createElement('canvas');
+				canvas.width = Math.ceil(viewport.width);
+				canvas.height = Math.ceil(viewport.height);
+				await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+				const result = await ocrWorker.recognize(canvas);
+				lines = result.data.text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+				canvas.width = 0;
+				canvas.height = 0;
+			}
+			for (const line of lines) {
+				const text = (typeof line === 'string' ? line : line.parts.join(' ')).replace(/(\d)\s+([.)])/g, '$1$2').replace(/\s+/g, ' ').trim();
+				const match = text.match(/^(?:QUESTION\s+)?(\d{1,2})(?:\s*([.)])\s+|\s+)(.+)$/i);
+				const questionNumber = match ? Number(match[1]) : 0;
+				const looksLikeQuestion = match && (!usedOcr || /^[A-Z(]/.test(match[3]));
+				if (looksLikeQuestion && questionNumber > lastQuestionNumber && questionNumber <= 40) {
+					if (current) blocks.push(current);
+					current = { number: questionNumber, page: pageNumber, extraction: usedOcr ? 'OCR' : 'PDF text', lines: [match[3]] };
+					lastQuestionNumber = questionNumber;
+				} else if (current && text && !/^\d{1,3}$/.test(text)) current.lines.push(text);
+			}
+		}
+		if (current) blocks.push(current);
+		const questions = blocks.map((block) => {
+			let optionRun = [];
+			let options = [];
+			const optionPattern = /^\(?([A-D])\)?[.)]\s*(.+)$/i;
+			for (const line of block.lines) {
+				const match = line.match(optionPattern);
+				if (!match) { optionRun = []; continue; }
+				const letter = match[1].toUpperCase();
+				const expected = String.fromCharCode(65 + optionRun.length);
+				if (letter !== expected) optionRun = letter === 'A' ? [] : optionRun;
+				if (letter === String.fromCharCode(65 + optionRun.length)) optionRun.push(match[2]);
+				if (optionRun.length === 4) { options = optionRun; break; }
+			}
+			const promptLines = options.length === 4
+				? block.lines.filter((line) => !optionPattern.test(line))
+				: block.lines;
+			return { number: block.number, page: block.page, extraction: block.extraction, prompt: promptLines.join('\n').trim(), choices: options };
+		}).filter((question) => question.prompt.length > 5 && !/instructions to candidates|examiner'?s use only/i.test(question.prompt.slice(0, 500))).slice(0, 100);
+		extractedPaperDrafts = { file, questions, message: '', loading: false };
+		if (!questions.length) extractedPaperDrafts.message = 'No selectable question text found. Scanned image PDFs need OCR before they can be imported.';
+	} catch {
+		extractedPaperDrafts = { file, questions: [], message: 'Could not read this PDF. Open or download it to check the file, then try again.', loading: false };
+	} finally {
+		if (ocrWorker) await ocrWorker.terminate();
+	}
+	renderApp();
+}
+
+function usePaperQuestionDraft(index) {
+	const draft = extractedPaperDrafts.questions[index];
+	if (!draft) return;
+	const typeSelect = $('#paper-question-type');
+	$('#paper-question-prompt').value = draft.prompt;
+	typeSelect.value = draft.choices.length === 4 ? 'choice' : 'short';
+	typeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+	if (draft.choices.length === 4) draft.choices.forEach((choice, choiceIndex) => { $(`#paper-choice-${choiceIndex}`).value = choice; });
+	$('#paper-correct-choice').value = '';
+	$('#paper-correct-answer').value = '';
+	$('#paper-question-explanation').value = '';
+	$('.paper-authoring').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function renderPastPapers() {
+	const selected = PAST_PAPERS.find((paper) => paper.file === selectedPastPaperFile) || PAST_PAPERS[0];
+	selectedPastPaperFile = selected.file;
+	const subjects = [...new Set(PAST_PAPERS.map((paper) => paper.subject))];
+	const years = [...new Set(PAST_PAPERS.filter((paper) => paper.subject === selected.subject).map((paper) => paper.year))].sort((a, b) => (b ?? -Infinity) - (a ?? -Infinity));
+	const papers = PAST_PAPERS.filter((paper) => paper.subject === selected.subject && paper.year === selected.year);
+	const questions = (state.paperQuestions || []).filter((question) => question.file === selected.file);
+	const paperTitle = `${selected.year || 'Undated'} ${selected.subject} ${selected.paper}`;
+	return `<div class="page-heading"><div><p class="eyebrow">Work through original papers</p><h1>Past paper revision.</h1><p class="subheading">Choose a subject, year, and paper to read it here.</p></div></div>
+		<div class="revision-filters"><label class="field">Subject<select id="revision-subject">${subjects.map((subject) => `<option value="${escapeHTML(subject)}" ${selected.subject === subject ? 'selected' : ''}>${escapeHTML(subject)}</option>`).join('')}</select></label><label class="field">Year<select id="revision-year">${years.map((year) => `<option value="${year ?? ''}" ${selected.year === year ? 'selected' : ''}>${year ?? 'Year not listed'}</option>`).join('')}</select></label><label class="field">Paper<select id="revision-paper">${papers.map((paper) => `<option value="${escapeHTML(paper.file)}" ${selected.file === paper.file ? 'selected' : ''}>${escapeHTML(paper.paper)}${paper.number ? ` · ${paper.number}` : ''}</option>`).join('')}</select></label></div>
+		<div class="paper-viewer-heading"><div><h2>${escapeHTML(paperTitle)}</h2></div><div class="paper-viewer-actions"><a class="button secondary small" href="${escapeHTML(selected.file)}" target="_blank" rel="noopener noreferrer">Open PDF</a><a class="button small" href="${escapeHTML(selected.file)}" download>Download PDF</a></div></div>
+		<iframe class="past-paper-frame" src="${escapeHTML(selected.file)}" title="${escapeHTML(paperTitle)}" loading="lazy"></iframe>
+		${renderPaperQuiz(selected, questions)}
+		<section class="surface paper-authoring"><div class="section-title"><div><h2>Build this paper’s quiz</h2><p class="field-help">Scan the selected PDF to draft questions. Review the extracted text and mark the correct answer before saving.</p></div><div class="paper-authoring-tools"><span class="paper-question-count">${questions.length} saved</span><button class="button secondary small" data-action="read-paper" data-file="${escapeHTML(selected.file)}" ${extractedPaperDrafts.loading ? 'disabled' : ''}>Scan this PDF</button></div></div>
+			${renderExtractedDrafts(selected.file)}
+			<form id="paper-question-form"><label class="field" for="paper-question-prompt">Question text<textarea id="paper-question-prompt" name="prompt" rows="3" required maxlength="10000" placeholder="Enter a question from the paper"></textarea></label>
+				<div class="paper-question-fields"><label class="field" for="paper-question-type">Answer format<select id="paper-question-type" name="type"><option value="choice">Multiple choice</option><option value="short">Written answer</option></select></label></div>
+				<div id="paper-choice-fields" class="paper-authoring-choices">${[0, 1, 2, 3].map((index) => `<label class="field" for="paper-choice-${index}">Choice ${String.fromCharCode(65 + index)}<input id="paper-choice-${index}" name="choice${index}" maxlength="240" required></label>`).join('')}<label class="field" for="paper-correct-choice">Correct choice<select id="paper-correct-choice" name="correctChoice" required><option value="" selected disabled>Select answer</option><option value="0">A</option><option value="1">B</option><option value="2">C</option><option value="3">D</option></select></label></div>
+				<div id="paper-short-fields" class="paper-question-fields" hidden><label class="field" for="paper-correct-answer">Expected answer<input id="paper-correct-answer" name="shortAnswer" maxlength="500" placeholder="Answer to check against"></label></div>
+				<label class="field" for="paper-question-explanation">Explanation <span class="field-help">Optional, shown after each answer</span><textarea id="paper-question-explanation" name="explanation" rows="2" maxlength="1000" placeholder="Why is this the correct answer?"></textarea></label>
+				<button class="button small" type="submit">Save question</button>
+			</form>
+			${questions.length ? `<div class="paper-question-list"><h3>Saved for this paper</h3>${questions.map((question) => `<div class="paper-question-row"><div><strong>${escapeHTML(question.prompt)}</strong><span>${question.type === 'choice' ? 'Multiple choice' : 'Written answer'}</span></div><button class="text-button" data-action="remove-paper-question" data-question-id="${escapeHTML(question.id)}">Remove</button></div>`).join('')}</div>` : ''}
+		</section>`;
+}
+
+function renderPaperQuiz(paper, questions) {
+	if (!paperQuiz || paperQuiz.file !== paper.file) return `<section class="paper-quiz-launch"><div><p class="eyebrow">Active recall</p><h2>Practice this paper.</h2><p class="subheading">${questions.length ? `${questions.length} saved question${questions.length === 1 ? '' : 's'} ready` : 'Add questions below to build a quiz for this paper.'}</p></div><button class="button" data-action="begin-paper-quiz" data-file="${escapeHTML(paper.file)}" ${questions.length ? '' : 'disabled'}>Start quiz <span aria-hidden="true">→</span></button></section>`;
+	if (paperQuiz.complete) {
+		const score = paperQuiz.questions.reduce((total, question, index) => total + (isCorrect(question, paperQuiz.answers[index]) ? 1 : 0), 0);
+		const missed = paperQuiz.questions.filter((question, index) => !isCorrect(question, paperQuiz.answers[index]));
+		return `<section class="surface paper-quiz-session"><p class="eyebrow">Session complete</p><h2>${score === paperQuiz.questions.length ? 'Excellent recall.' : 'Review, then try again.'}</h2><p class="paper-quiz-score">${score} <span>/ ${paperQuiz.questions.length} correct</span></p><p class="subheading">${missed.length ? `${missed.length} question${missed.length === 1 ? '' : 's'} to revisit.` : 'You got every question right.'}</p><div class="quiz-actions"><button class="text-button" data-action="end-paper-quiz">Back to paper</button>${missed.length ? `<button class="button secondary" data-action="retry-missed-paper-quiz">Retry missed (${missed.length})</button>` : ''}<button class="button" data-action="begin-paper-quiz" data-file="${escapeHTML(paper.file)}">Practice again</button></div></section>`;
+	}
+	const question = paperQuiz.questions[paperQuiz.index];
+	const answered = paperQuiz.answers[paperQuiz.index] !== undefined;
+	const selected = paperQuiz.answers[paperQuiz.index];
+	const correct = answered && isCorrect(question, selected);
+	const response = question.type === 'choice'
+		? `<div class="answer-list">${question.choices.map((choice, index) => `<button class="answer-option ${selected === index ? 'selected' : ''} ${answered && index === question.answer ? 'correct' : ''} ${answered && selected === index && !correct ? 'incorrect' : ''}" data-action="answer-paper-choice" data-answer="${index}" ${answered ? 'disabled' : ''}><span class="answer-letter">${String.fromCharCode(65 + index)}</span>${escapeHTML(choice)}</button>`).join('')}</div>`
+		: `<form id="paper-short-answer-form"><label class="field" for="paper-short-answer">Your answer<input id="paper-short-answer" autocomplete="off" ${answered ? `value="${escapeHTML(String(selected))}" disabled` : ''} placeholder="Type your answer" required></label>${answered ? '' : '<button class="button small" type="submit">Check answer</button>'}</form>`;
+	return `<section class="surface paper-quiz-session"><div class="question-count">QUESTION ${paperQuiz.index + 1} / ${paperQuiz.questions.length} · ${question.type === 'choice' ? 'MULTIPLE CHOICE' : 'WRITTEN ANSWER'}</div><div class="quiz-progress"><span style="width:${(paperQuiz.index + (answered ? 1 : 0)) / paperQuiz.questions.length * 100}%"></span></div><h2 class="question-text">${escapeHTML(question.prompt)}</h2>${response}${answered ? `<div class="answer-feedback ${correct ? '' : 'is-wrong'}"><strong>${correct ? 'That is right.' : `Not quite. The answer is ${escapeHTML(formatAnswer(question))}.`}</strong>${question.explanation ? ` ${escapeHTML(question.explanation)}` : ''}</div>` : ''}<div class="quiz-actions"><button class="text-button" data-action="end-paper-quiz">Exit session</button>${answered ? `<button class="button" data-action="next-paper-question">${paperQuiz.index === paperQuiz.questions.length - 1 ? 'See results' : 'Next question'} <span aria-hidden="true">→</span></button>` : ''}</div></section>`;
+}
+
+function beginPaperQuiz(file, questionSet) {
+	const questions = questionSet || (state.paperQuestions || []).filter((question) => question.file === file);
+	if (!questions.length) { showToast('Add questions to this paper before starting a quiz.'); return; }
+	paperQuiz = { file, questions: [...questions].sort(() => Math.random() - .5), index: 0, answers: {}, complete: false };
+	selectedPastPaperFile = file;
+	currentView = 'past-papers';
+	renderApp();
+}
+
+function answerPaperQuestion(answer) {
+	if (!paperQuiz || paperQuiz.answers[paperQuiz.index] !== undefined) return;
+	paperQuiz.answers[paperQuiz.index] = answer;
+	renderApp();
+}
+
+async function completePaperQuiz() {
+	const score = paperQuiz.questions.reduce((total, question, index) => total + (isCorrect(question, paperQuiz.answers[index]) ? 1 : 0), 0);
+	const paper = PAST_PAPERS.find((item) => item.file === paperQuiz.file);
+	state.attempts.push({ id: crypto.randomUUID(), subject: paper?.subject || 'Chemistry', paper: `${paper?.year || 'Undated'} ${paper?.paper || 'Paper'}`, score, total: paperQuiz.questions.length, date: todayKey() });
+	if (!state.studyDays.includes(todayKey())) state.studyDays.push(todayKey());
+	paperQuiz.complete = true;
+	await persist();
+	renderApp();
+}
+
+async function savePaperQuestion(form) {
+	const data = new FormData(form);
+	const type = String(data.get('type'));
+	const question = { id: crypto.randomUUID(), file: selectedPastPaperFile, prompt: String(data.get('prompt')).trim(), type, explanation: String(data.get('explanation')).trim() };
+	if (type === 'choice') {
+		question.choices = [0, 1, 2, 3].map((index) => String(data.get(`choice${index}`)).trim());
+		if (question.choices.some((choice) => !choice)) { showToast('Add all four answer choices.'); return; }
+		question.answer = Number(data.get('correctChoice'));
+	} else {
+		question.answer = String(data.get('shortAnswer')).trim();
+		if (!question.answer) { showToast('Enter the expected answer.'); return; }
+	}
+	state.paperQuestions = [...(state.paperQuestions || []), question];
+	await persist();
+	renderApp();
+	showToast('Question saved to this paper.');
+}
+
 function renderSettings() {
 	return `<div class="page-heading"><div><p class="eyebrow">Your data, your choice</p><h1>Settings.</h1><p class="subheading">Manage your encrypted vault and optional remote sync.</p></div></div><div class="settings-grid"><section class="surface"><div class="settings-section"><h2>Remote sync</h2><p class="subheading">Sync an encrypted copy to an endpoint you control. The endpoint must support GET (download) and PUT (upload) of the encrypted text payload.</p><div class="field" style="margin-top:17px"><label for="sync-url">HTTPS sync endpoint</label><input id="sync-url" type="url" value="${escapeHTML(state.syncUrl)}" placeholder="https://your-server.example/study-sync"><span class="field-help">Use an HTTPS endpoint that you trust. Your passphrase is never sent; only the AES-GCM encrypted vault is transmitted.</span></div><label class="consent-row"><input id="sync-consent" type="checkbox" ${state.consent ? 'checked' : ''}>I understand encrypted vault data will be sent to this endpoint when I sync.</label><div style="display:flex;gap:9px;margin-top:14px"><button class="button small" data-action="save-sync">Save endpoint</button><button class="button secondary small" data-action="sync-now">Sync now</button></div><p class="sync-status" id="sync-status">Sync is optional. No server is configured by this app.</p></div><div class="settings-section"><h2>Encrypted backup</h2><p class="subheading">Export a portable, AES-GCM encrypted backup or restore one on this device.</p><div style="display:flex;gap:9px;margin-top:15px"><button class="button secondary small" data-action="export-backup">Export backup</button><button class="button secondary small" data-action="import-backup">Import backup</button><input id="backup-file" type="file" accept=".fieldnotes,.txt" hidden></div></div></section><aside class="surface"><p class="eyebrow">Privacy notes</p><h2>Private by default.</h2><p class="subheading" style="line-height:1.7">Your study data is encrypted on this device using AES-256-GCM. The encryption key is derived from your passphrase with PBKDF2. Your passphrase is not stored or transmitted.</p><div class="notice">Keep your passphrase safe. There is no password reset service, and losing it means your encrypted data cannot be recovered.</div><p class="field-help" style="margin-top:14px">Quiz activity and study plans stay local unless you explicitly configure sync. No analytics or leaderboard service is connected.</p></aside></div>`;
 }
 
 function renderApp() {
-	$('#app').innerHTML = `<header class="topbar"><a class="brand" href="#overview" aria-label="Fieldnotes home"><span class="brand-mark">f.</span><span>fieldnotes<span class="brand-dot">.</span></span></a><nav class="main-nav" aria-label="Main navigation">${[['overview', 'Overview'], ['quiz', 'Quizzes'], ['plan', 'Study plan'], ['library', 'Library']].map(([key, title]) => `<button class="nav-link ${currentView === key ? 'is-active' : ''}" data-view="${key}">${title}</button>`).join('')}</nav><div class="topbar-tools"><span class="connection-status"><span class="status-dot"></span><span id="connection-label">Saved on this device</span></span><button class="avatar-button" id="settings-button" aria-label="Open settings">${escapeHTML(state.name.slice(0, 1).toUpperCase())}</button></div></header><main id="view" class="page-content">${currentView === 'overview' ? renderOverview() : currentView === 'quiz' ? renderQuiz() : currentView === 'plan' ? renderPlan() : currentView === 'library' ? renderLibrary() : renderSettings()}</main><footer class="app-footer"><span>KCSE revision, at your pace.</span><span>Made for steady progress.</span></footer><div id="toast" class="toast" role="status" aria-live="polite"></div>`;
+	$('#app').innerHTML = `<header class="topbar"><a class="brand" href="#overview" aria-label="Fieldnotes home"><span class="brand-mark">f.</span><span>fieldnotes<span class="brand-dot">.</span></span></a><nav class="main-nav" aria-label="Main navigation">${[['overview', 'Overview'], ['quiz', 'Quizzes'], ['plan', 'Study plan'], ['library', 'Library'], ['past-papers', 'Past papers']].map(([key, title]) => `<button class="nav-link ${currentView === key ? 'is-active' : ''}" data-view="${key}">${title}</button>`).join('')}</nav><div class="topbar-tools"><span class="connection-status"><span class="status-dot"></span><span id="connection-label">Saved on this device</span></span><button class="avatar-button" id="settings-button" aria-label="Open settings">${escapeHTML(state.name.slice(0, 1).toUpperCase())}</button></div></header><main id="view" class="page-content">${currentView === 'overview' ? renderOverview() : currentView === 'quiz' ? renderQuiz() : currentView === 'plan' ? renderPlan() : currentView === 'library' ? renderLibrary() : currentView === 'past-papers' ? renderPastPapers() : renderSettings()}</main><footer class="app-footer"><span>KCSE revision, at your pace.</span><span>Made for steady progress.</span></footer><div id="toast" class="toast" role="status" aria-live="polite"></div>`;
 	updateConnection();
 }
 
@@ -464,6 +680,23 @@ function attachEvents() {
 		const { action } = actionButton.dataset;
 		if (action === 'start-quiz') { currentView = 'quiz'; quiz = null; renderApp(); }
 		if (action === 'start-subject') beginQuiz(actionButton.dataset.subject, 5, actionButton.dataset.paper || '');
+		if (action === 'begin-paper-quiz') beginPaperQuiz(actionButton.dataset.file);
+		if (action === 'read-paper') await extractPaperQuestions(actionButton.dataset.file);
+		if (action === 'use-paper-draft') usePaperQuestionDraft(Number(actionButton.dataset.draftIndex));
+		if (action === 'end-paper-quiz') { paperQuiz = null; renderApp(); }
+		if (action === 'answer-paper-choice') answerPaperQuestion(Number(actionButton.dataset.answer));
+		if (action === 'next-paper-question') {
+			if (paperQuiz.index === paperQuiz.questions.length - 1) await completePaperQuiz();
+			else { paperQuiz.index += 1; renderApp(); }
+		}
+		if (action === 'retry-missed-paper-quiz') {
+			const missed = paperQuiz.questions.filter((question, index) => !isCorrect(question, paperQuiz.answers[index]));
+			beginPaperQuiz(paperQuiz.file, missed);
+		}
+		if (action === 'remove-paper-question') {
+			state.paperQuestions = (state.paperQuestions || []).filter((question) => question.id !== actionButton.dataset.questionId);
+			await persist(); renderApp();
+		}
 		if (action === 'select-answer') await answerCurrent(actionButton.dataset.answer === 'true' ? true : actionButton.dataset.answer === 'false' ? false : Number(actionButton.dataset.answer));
 		if (action === 'next-question') {
 			if (quiz.index === quiz.questions.length - 1) await completeQuiz();
@@ -505,8 +738,18 @@ function attachEvents() {
 	document.addEventListener('submit', async (event) => {
 		if (event.target.id === 'quiz-setup') { event.preventDefault(); beginQuiz($('#quiz-subject').value, Number($('#quiz-count').value)); }
 		if (event.target.id === 'short-answer-form') { event.preventDefault(); await answerCurrent($('#short-answer').value); }
+		if (event.target.id === 'paper-question-form') { event.preventDefault(); await savePaperQuestion(event.target); }
+		if (event.target.id === 'paper-short-answer-form') { event.preventDefault(); answerPaperQuestion($('#paper-short-answer').value); }
 	});
 	document.addEventListener('change', async (event) => {
+		if (event.target.id === 'paper-question-type') {
+			const multipleChoice = event.target.value === 'choice';
+			$('#paper-choice-fields').hidden = !multipleChoice;
+			$('#paper-short-fields').hidden = multipleChoice;
+			document.querySelectorAll('#paper-choice-fields input').forEach((input) => { input.required = multipleChoice; });
+			$('#paper-correct-choice').required = multipleChoice;
+			$('#paper-correct-answer').required = !multipleChoice;
+		}
 		if (event.target.matches('[data-plan-index]')) {
 			const item = state.plan[Number(event.target.dataset.planIndex)];
 			const field = event.target.dataset.planField;
@@ -519,6 +762,13 @@ function attachEvents() {
 		}
 		if (event.target.id === 'paper-file' && event.target.files[0]) await storeAnswerSheet(event.target.files[0]);
 		if (event.target.id === 'backup-file' && event.target.files[0]) await importBackup(event.target.files[0]);
+		if (event.target.id === 'revision-subject' || event.target.id === 'revision-year') {
+			const subject = event.target.id === 'revision-subject' ? event.target.value : $('#revision-subject').value;
+			const year = event.target.id === 'revision-year' ? event.target.value : $('#revision-year').value;
+			const paper = PAST_PAPERS.find((item) => item.subject === subject && String(item.year ?? '') === year);
+			if (paper) { selectedPastPaperFile = paper.file; renderApp(); }
+		}
+		if (event.target.id === 'revision-paper') { selectedPastPaperFile = event.target.value; renderApp(); }
 	});
 	document.addEventListener('input', (event) => {
 		if (event.target.id === 'paper-search') {

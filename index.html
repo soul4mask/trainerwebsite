@@ -22,6 +22,7 @@
           <button class="nav-link" data-view="quiz">Quizzes</button>
           <button class="nav-link" data-view="plan">Study plan</button>
           <button class="nav-link" data-view="library">Library</button>
+          <button class="nav-link" data-view="past-papers">Past papers</button>
         </nav>
         <div class="topbar-tools">
           <span class="connection-status"><span class="status-dot"></span><span id="connection-label">Saved on this device</span></span>
@@ -33,6 +34,8 @@
       <div id="toast" class="toast" role="status" aria-live="polite"></div>
       <div id="overlay-root"></div>
     </div>
+    <script src="vendor/pdf.min.js" defer></script>
+    <script src="vendor/tesseract.min.js" defer></script>
     <script src="app.js" defer></script>
   </body>
 </html>
